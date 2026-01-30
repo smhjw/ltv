@@ -272,7 +272,7 @@ def format_value(val, is_percent=False, currency=None):
         return f"{symbol}{val:,.1f}"
     return f"{val:.2f}"
 
-def plot_with_interval(days, mean, lower, upper, title, y_axis_title, lang_dict, theme='dark', currency=None, is_percent=False):
+def plot_with_interval(days, mean, lower, upper, title, y_axis_title, lang_dict, theme='dark', currency=None, is_percent=False, cpi_line=None):
     layout_template = 'plotly_dark' if theme == 'dark' else 'plotly_white'
     
     # Task 2: Visual Channels & Color Strategy
@@ -303,6 +303,17 @@ def plot_with_interval(days, mean, lower, upper, title, y_axis_title, lang_dict,
         hovertemplate=f"<b>%{{y:.1f}}{'%' if is_percent else ''}</b><extra></extra>"
     ))
     
+    # CPI Line (if provided) for LTV/ROI integration
+    if cpi_line is not None:
+        fig.add_hline(
+            y=cpi_line, 
+            line_dash="dash", 
+            line_color="#FF5252", 
+            annotation_text=f"CPI (Cost)", 
+            annotation_position="top left",
+            annotation_font=dict(color="#FF5252")
+        )
+
     # Upper Bound (Invisible for fill, but we add a stroke as requested)
     # "Task 1: ...increase 2px semi-transparent stroke" - Applying to bounds
     fig.add_trace(go.Scatter(
@@ -326,9 +337,12 @@ def plot_with_interval(days, mean, lower, upper, title, y_axis_title, lang_dict,
         hoverinfo='skip'
     ))
     
-    # Task 3: Annotations for specific days [20, 40, 60, 90]
+    # Task 3: Annotations for specific days (Every 20 days)
     annotations = []
-    target_days = [20, 40, 60, 90]
+    # Dynamic interval: Every 20 days within the range
+    max_day = int(max(days))
+    target_days = [d for d in range(20, max_day + 1, 20)]
+    
     for d in target_days:
         if d in days:
             idx = np.where(days == d)[0][0]
@@ -463,12 +477,12 @@ if page == "Retention Prediction":
         if 'retention_fig' in st.session_state:
             st.plotly_chart(st.session_state.retention_fig, use_container_width=True)
 
-# --- LTV Module ---
+# --- LTV & ROAS Integrated Module ---
 elif page == "LTV Prediction":
-    st.header(t["ltv"]["header"])
+    # Renamed header to reflect integration
+    st.header(t["ltv"]["header"] + " & ROI Analysis")
     
     # Layout: Left Input (25-30%) + Right Chart (70-75%)
-    # Streamlit columns [1, 3] approximates 25% / 75%
     col_left, col_right = st.columns([1, 3])
     
     with col_left:
@@ -486,8 +500,16 @@ elif page == "LTV Prediction":
         edited_df = st.data_editor(st.session_state.ltv_data, num_rows="dynamic", use_container_width=True)
         st.session_state.ltv_data = edited_df
         
+        # LTV Model Parameters
         model_type = st.selectbox(t["ltv"]["model_type"], ["power_law", "logarithmic", "retention_based"])
         prediction_days = st.number_input(t["ltv"]["predict_days"], value=365, min_value=30)
+        
+        # ROI / CPI Integration
+        st.divider()
+        st.markdown("### ROI / Cost Parameters")
+        currency_symbol = {'USD': '$', 'CNY': '¥', 'EUR': '€', 'JPY': '¥'}.get(st.session_state.get('currency', 'USD'), '')
+        cpi_input = st.number_input(f"CPI ({currency_symbol})", value=st.session_state.roas_params.get('cpi', 2.0))
+        st.session_state.roas_params['cpi'] = cpi_input
         
         if st.button(t["ltv"]["run_btn"], type="primary", use_container_width=True):
             try:
@@ -523,26 +545,48 @@ elif page == "LTV Prediction":
         if st.session_state.predicted_ltv:
             data = st.session_state.predicted_ltv
             
-            # Key Metrics (Top of Chart)
+            # --- ROI Calculation ---
+            cpi = st.session_state.roas_params['cpi']
+            # Find payback day (first day where LTV >= CPI)
+            payback_day = None
+            for d, val in zip(data['days'], data['pred']):
+                if val >= cpi:
+                    payback_day = d
+                    break
+            
+            # Key Metrics (Integrated LTV & ROI)
             metrics = {
-                "D90": np.interp(90, data['days'], data['pred']),
-                "D180": np.interp(180, data['days'], data['pred']),
-                "D365": np.interp(365, data['days'], data['pred'])
+                "D90 LTV": np.interp(90, data['days'], data['pred']),
+                "D180 LTV": np.interp(180, data['days'], data['pred']),
+                "D365 LTV": np.interp(365, data['days'], data['pred']),
+                "Payback Day": payback_day if payback_day else f"> {max(data['days'])}",
+                "D90 ROI": (np.interp(90, data['days'], data['pred']) / cpi * 100) if cpi > 0 else 0
             }
             
+            # Display Metrics
             m_cols = st.columns(len(metrics))
             for i, (k, v) in enumerate(metrics.items()):
-                m_cols[i].metric(k, format_value(v, currency=st.session_state.currency))
+                if "ROI" in k:
+                     m_cols[i].metric(k, f"{v:.1f}%")
+                elif "Day" in k and isinstance(v, (int, float)):
+                     m_cols[i].metric(k, f"{int(v)} Days")
+                elif "Day" in k: # String case
+                     m_cols[i].metric(k, v)
+                else:
+                     m_cols[i].metric(k, format_value(v, currency=st.session_state.currency))
 
-            # Plot
+            # Plot (Integrated LTV Curve + CPI Line)
             fig = plot_with_interval(
                 data['days'], data['pred'], data['lower'], data['upper'], 
-                t["ltv"]["plot_title"], 
+                t["ltv"]["plot_title"] + " vs CPI (ROI Analysis)", 
                 t["ltv"]["y_axis"], 
                 t["retention"],
                 theme=st.session_state.theme,
-                currency=st.session_state.currency
+                currency=st.session_state.currency,
+                cpi_line=cpi
             )
+            
+            # Add Actuals
             fig.add_trace(go.Scatter(
                 x=data['input_days'], y=data['input_vals'], 
                 mode='markers', 
@@ -550,12 +594,19 @@ elif page == "LTV Prediction":
                 marker=dict(color='#FF5252', size=8, line=dict(width=1.5, color='white'), opacity=0.9)
             ))
             
-            # Task 1 & 5: High resolution & Responsive
+            # High resolution & Responsive
             st.plotly_chart(fig, use_container_width=True, config={'responsive': True, 'displayModeBar': False})
             
-            # Sensitivity
-            if model_type == 'retention_based': 
-                st.info("Sensitivity Analysis available (Coming Soon)")
+            # Optional: Detailed ROI Table
+            with st.expander("Detailed ROI / ROAS Data", expanded=False):
+                roi_data = []
+                for d in [30, 60, 90, 180, 365]:
+                    if d <= max(data['days']):
+                        val = np.interp(d, data['days'], data['pred'])
+                        roi = (val / cpi * 100) if cpi > 0 else 0
+                        roi_data.append({"Day": d, "LTV": val, "ROI (%)": roi})
+                st.table(pd.DataFrame(roi_data).style.format({"LTV": "{:.2f}", "ROI (%)": "{:.1f}%"}))
+
         else:
             st.info("👈 Please enter data and run prediction / 请在左侧输入数据并运行预测")
 
