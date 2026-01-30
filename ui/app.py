@@ -29,6 +29,7 @@ TRANSLATIONS = {
             "retention": "Retention Prediction",
             "ltv": "LTV Prediction",
             "roas": "ROAS Payback",
+            "channel_roi": "Channel ROI Monitor",
             "data": "Data Management"
         },
         "retention": {
@@ -69,8 +70,27 @@ TRANSLATIONS = {
             "plot_title": "ROAS Curve",
             "breakeven": "Breakeven"
         },
+        "channel_roi": {
+            "header": "4. Channel ROI Monitor",
+            "input_header": "Channel Data Input",
+            "upload_text": "Upload Channel Data (CSV: Channel, CPI, Original_LTV)",
+            "sample_btn": "Load Sample Data",
+            "audit_params": "Audit Parameters",
+            "share_ratio": "Platform Share Ratio",
+            "safety_margin": "Safety Margin",
+            "run_audit": "Run Audit & Monitor",
+            "report_title": "Channel ROI Monitor Report",
+            "status_breakeven": "Breakeven",
+            "status_loss": "Unrecovered",
+            "warn_normal": "Normal",
+            "warn_safe": "Safe",
+            "warn_high": "High Risk",
+            "warn_abnormal": "Abnormal",
+            "push_btn": "Push to WeCom",
+            "push_success": "Notification Pushed to: Ops, Finance, UA Team"
+        },
         "data": {
-            "header": "4. Data Management",
+            "header": "5. Data Management",
             "subheader_io": "Import/Export",
             "download_btn": "Download Config JSON",
             "upload_label": "Upload Config JSON",
@@ -98,6 +118,7 @@ TRANSLATIONS = {
             "retention": "留存预测",
             "ltv": "LTV预测",
             "roas": "ROAS回收分析",
+            "channel_roi": "渠道回本监控",
             "data": "数据管理"
         },
         "retention": {
@@ -138,8 +159,27 @@ TRANSLATIONS = {
             "plot_title": "ROAS 曲线",
             "breakeven": "回本线"
         },
+        "channel_roi": {
+            "header": "4. 渠道回本监控",
+            "input_header": "渠道数据录入",
+            "upload_text": "上传渠道数据 (CSV列名: Channel, CPI, Original_LTV)",
+            "sample_btn": "加载示例数据",
+            "audit_params": "审计参数设置",
+            "share_ratio": "平台分成比例 (开发者实得)",
+            "safety_margin": "安全阈值 (Fluctuation Buffer)",
+            "run_audit": "运行审计监控",
+            "report_title": "渠道回本监控日报",
+            "status_breakeven": "已回本",
+            "status_loss": "未回本",
+            "warn_normal": "正常",
+            "warn_safe": "安全",
+            "warn_high": "高风险",
+            "warn_abnormal": "数据异常",
+            "push_btn": "推送至企业微信",
+            "push_success": "已推送预警信息至：投放负责人、财务、运营"
+        },
         "data": {
-            "header": "4. 数据管理",
+            "header": "5. 数据管理",
             "subheader_io": "导入/导出",
             "download_btn": "下载配置 JSON",
             "upload_label": "上传配置 JSON",
@@ -238,6 +278,7 @@ module_map = {
     t["modules"]["retention"]: "Retention Prediction",
     t["modules"]["ltv"]: "LTV Prediction",
     t["modules"]["roas"]: "ROAS Payback",
+    t["modules"]["channel_roi"]: "Channel ROI Monitor",
     t["modules"]["data"]: "Data Management"
 }
 page_display = st.sidebar.selectbox(t["sidebar_module"], list(module_map.keys()))
@@ -262,6 +303,11 @@ if 'roas_params' not in st.session_state:
     st.session_state.roas_params = {'cpi': 2.0}
 if 'currency' not in st.session_state:
     st.session_state.currency = 'USD'
+
+if 'channel_roi_data' not in st.session_state:
+    st.session_state.channel_roi_data = None
+if 'channel_audit_report' not in st.session_state:
+    st.session_state.channel_audit_report = None
 
 def format_value(val, is_percent=False, currency=None):
     if is_percent:
@@ -654,6 +700,143 @@ elif page == "ROAS Payback":
             hovermode="x unified"
         )
         st.plotly_chart(fig, use_container_width=True)
+
+# --- Channel ROI Monitor Module ---
+elif page == "Channel ROI Monitor":
+    st.header(t["channel_roi"]["header"])
+    
+    col_input, col_params = st.columns([1, 1])
+    
+    with col_input:
+        st.subheader(t["channel_roi"]["input_header"])
+        
+        # File Uploader
+        uploaded_file = st.file_uploader(t["channel_roi"]["upload_text"], type=["csv"])
+        if uploaded_file is not None:
+            try:
+                df = pd.read_csv(uploaded_file)
+                # Basic Validation
+                req_cols = ['Channel', 'CPI', 'Original_LTV']
+                if all(col in df.columns for col in req_cols):
+                    st.session_state.channel_roi_data = df
+                else:
+                    st.error(f"CSV missing columns: {req_cols}")
+            except Exception as e:
+                st.error(f"Error reading CSV: {e}")
+        
+        # Sample Data Button
+        if st.button(t["channel_roi"]["sample_btn"]):
+            st.session_state.channel_roi_data = pd.DataFrame({
+                'Channel': ['FB_Ads', 'Google_UAC', 'TikTok', 'Organic', 'Unity_Ads', 'IronSource'],
+                'CPI': [25.0, 30.0, 15.0, 0.0, 40.0, 10.0],
+                'Original_LTV': [40.0, 35.0, 10.0, 15.0, 20.0, 100.0]
+            })
+            
+        if st.session_state.channel_roi_data is not None:
+            st.dataframe(st.session_state.channel_roi_data, hide_index=True)
+            
+    with col_params:
+        st.subheader(t["channel_roi"]["audit_params"])
+        
+        # Parameters
+        share_ratio = st.slider(t["channel_roi"]["share_ratio"], 0.0, 1.0, 0.7, 0.05)
+        safety_margin = st.slider(t["channel_roi"]["safety_margin"], 1.0, 1.5, 1.2, 0.05)
+        
+        # Run Audit
+        if st.button(t["channel_roi"]["run_audit"], type="primary"):
+            if st.session_state.channel_roi_data is not None:
+                df = st.session_state.channel_roi_data.copy()
+                
+                # 1. Calculate Actual LTV
+                df['Actual_LTV'] = df['Original_LTV'] * share_ratio
+                
+                # 2. ROI Calculation (Handle CPI=0)
+                df['ROI'] = df.apply(lambda x: x['Actual_LTV'] / x['CPI'] if x['CPI'] > 0 else (999.0 if x['Actual_LTV'] > 0 else 0), axis=1)
+                
+                # 3. Status Determination
+                def get_status(row):
+                    if row['ROI'] > 1.0:
+                        return t["channel_roi"]["status_breakeven"]
+                    return t["channel_roi"]["status_loss"]
+                
+                df['Status'] = df.apply(get_status, axis=1)
+                
+                # 4. Warning Level
+                def get_warning(row):
+                    # Anomaly Check
+                    if row['CPI'] > 0:
+                        ratio = row['Actual_LTV'] / row['CPI']
+                        if ratio < 0.5:
+                            return t["channel_roi"]["warn_abnormal"] # < 0.5 High risk/Abnormal
+                        if ratio > 3.0:
+                            return t["channel_roi"]["warn_abnormal"] # > 3 Suspicious
+                            
+                    # Safety Check
+                    if row['ROI'] >= safety_margin:
+                        return t["channel_roi"]["warn_safe"]
+                    elif row['ROI'] >= 1.0:
+                        return t["channel_roi"]["warn_normal"]
+                    else:
+                        return t["channel_roi"]["warn_high"] # Loss
+                        
+                df['Warning_Level'] = df.apply(get_warning, axis=1)
+                
+                st.session_state.channel_audit_report = df
+                st.success("Audit Completed!")
+            else:
+                st.warning("Please load data first.")
+
+    # Report Section
+    if st.session_state.channel_audit_report is not None:
+        st.divider()
+        st.subheader(t["channel_roi"]["report_title"])
+        
+        report = st.session_state.channel_audit_report
+        
+        # Styling Logic
+        def highlight_rows(row):
+            styles = [''] * len(row)
+            # High Risk / Loss -> Red background
+            if row['Warning_Level'] == t["channel_roi"]["warn_high"]:
+                styles = ['background-color: #ffcccc; color: black'] * len(row)
+            # Abnormal -> Yellow background
+            elif row['Warning_Level'] == t["channel_roi"]["warn_abnormal"]:
+                 styles = ['background-color: #fff3cd; color: black'] * len(row)
+            # Safe -> Greenish text
+            elif row['Warning_Level'] == t["channel_roi"]["warn_safe"]:
+                 styles = ['color: green'] * len(row)
+            return styles
+
+        st.dataframe(
+            report.style.apply(highlight_rows, axis=1)
+            .format({
+                "CPI": "¥{:.2f}", 
+                "Original_LTV": "¥{:.2f}", 
+                "Actual_LTV": "¥{:.2f}",
+                "ROI": "{:.2f}x"
+            }),
+            use_container_width=True,
+            hide_index=True
+        )
+        
+        # Actions
+        col_act1, col_act2 = st.columns([1, 4])
+        with col_act1:
+            csv = report.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                "Download CSV",
+                csv,
+                "channel_roi_report.csv",
+                "text/csv"
+            )
+        with col_act2:
+            if st.button(t["channel_roi"]["push_btn"]):
+                # Filter bad channels for notification
+                bad_channels = report[report['Warning_Level'].isin([t["channel_roi"]["warn_high"], t["channel_roi"]["warn_abnormal"]])]
+                msg = t["channel_roi"]["push_success"]
+                if not bad_channels.empty:
+                    msg += f"\n\n🚨 Alert Channels ({len(bad_channels)}): {', '.join(bad_channels['Channel'].tolist())}"
+                st.info(msg)
 
 # --- Data Management ---
 elif page == "Data Management":
