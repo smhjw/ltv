@@ -164,6 +164,27 @@ if 'theme' not in st.session_state:
     st.session_state.theme = qp.get('theme', 'dark')
 
 def apply_theme():
+    # Import Fonts
+    st.markdown("""
+        <style>
+            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Roboto:wght@400;500&display=swap');
+            
+            html, body, [class*="css"] {
+                font-family: 'Inter', 'Roboto', "Helvetica Neue", sans-serif;
+            }
+            
+            /* Responsive Helper Classes (Approximation) */
+            @media (max-width: 768px) {
+                /* Force columns to stack on mobile if not already */
+                [data-testid="column"] {
+                    width: 100% !important;
+                    flex: 1 1 auto !important;
+                    min-width: 100% !important;
+                }
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
     if st.session_state.theme == 'light':
         st.markdown("""
             <style>
@@ -177,10 +198,10 @@ def apply_theme():
                 [data-testid="stHeader"] {
                     background-color: #F5F5F5;
                 }
-                .stMarkdown, .stText, h1, h2, h3 {
+                .stMarkdown, .stText, h1, h2, h3, p, div, span {
                     color: black !important;
                 }
-                /* High contrast text for charts/metrics in light mode if needed */
+                /* Reset specific chart colors if needed */
             </style>
         """, unsafe_allow_html=True)
     # Store in query params for reload persistence
@@ -254,37 +275,53 @@ def format_value(val, is_percent=False, currency=None):
 def plot_with_interval(days, mean, lower, upper, title, y_axis_title, lang_dict, theme='dark', currency=None, is_percent=False):
     layout_template = 'plotly_dark' if theme == 'dark' else 'plotly_white'
     
-    # Task 1: High contrast text for lower bound in dark mode
-    lower_color = 'rgba(0,0,255,0.2)'
-    legend_font_color = 'white' if theme == 'dark' else 'black'
+    # Task 2: Visual Channels & Color Strategy
+    # Dark Theme: Neon Cyan #4DFFFF or Amber #FFB74D for lower bounds
+    # Light Theme: Darker contrast color
+    if theme == 'dark':
+        ci_color_fill = 'rgba(77, 255, 255, 0.2)' # Neon Cyan with transparency
+        ci_line_color = '#4DFFFF'
+        main_line_color = '#29B6F6' # Light Blue
+        text_color = '#E0E0E0'
+        grid_color = '#333333'
+    else:
+        ci_color_fill = 'rgba(255, 167, 38, 0.2)' # Orange/Amber
+        ci_line_color = '#FF9800'
+        main_line_color = '#1976D2' # Dark Blue
+        text_color = '#333333'
+        grid_color = '#E0E0E0'
+
+    font_family = "Inter, Roboto, 'Helvetica Neue', sans-serif"
     
     fig = go.Figure()
     
-    # Prediction
+    # Prediction (Mean)
     fig.add_trace(go.Scatter(
         x=days, y=mean, mode='lines', 
         name=lang_dict['prediction'], 
-        line=dict(color='blue'),
-        hovertemplate=f"%{{y:.1f}}{'%' if is_percent else ''}<extra></extra>"
+        line=dict(color=main_line_color, width=3),
+        hovertemplate=f"<b>%{{y:.1f}}{'%' if is_percent else ''}</b><extra></extra>"
     ))
     
-    # Upper Bound (hidden line)
+    # Upper Bound (Invisible for fill, but we add a stroke as requested)
+    # "Task 1: ...increase 2px semi-transparent stroke" - Applying to bounds
     fig.add_trace(go.Scatter(
         x=days, y=upper, mode='lines', 
         name=lang_dict['upper'], 
-        line=dict(width=0), 
+        line=dict(width=2, color=ci_line_color),
+        opacity=0.5,
         showlegend=False,
         hoverinfo='skip'
     ))
     
-    # Lower Bound (filled area)
-    # Task 1: Ensure text contrast in legend
+    # Lower Bound (Filled)
     fig.add_trace(go.Scatter(
         x=days, y=lower, mode='lines', 
         name=lang_dict['lower'], 
-        line=dict(width=0), 
+        line=dict(width=2, color=ci_line_color), 
         fill='tonexty', 
-        fillcolor=lower_color, 
+        fillcolor=ci_color_fill, 
+        opacity=0.5,
         showlegend=True,
         hoverinfo='skip'
     ))
@@ -296,7 +333,6 @@ def plot_with_interval(days, mean, lower, upper, title, y_axis_title, lang_dict,
         if d in days:
             idx = np.where(days == d)[0][0]
             val = mean[idx]
-            
             text_val = format_value(val, is_percent, currency)
             
             annotations.append(dict(
@@ -304,26 +340,42 @@ def plot_with_interval(days, mean, lower, upper, title, y_axis_title, lang_dict,
                 text=text_val,
                 showarrow=True,
                 arrowhead=0,
-                ax=0, ay=-20,
+                ax=0, ay=-25,
                 bgcolor="white",
                 bordercolor="black",
                 borderpad=4,
-                font=dict(color="black", size=12),
+                font=dict(color="black", size=12, family=font_family),
                 opacity=0.9
             ))
             
     fig.update_layout(
         template=layout_template,
-        title=title, 
-        xaxis_title="Days", 
-        yaxis_title=y_axis_title,
-        legend=dict(font=dict(color=legend_font_color)),
+        title=dict(text=title, font=dict(size=18, family=font_family, color=text_color)),
+        xaxis=dict(
+            title=dict(text="Days", font=dict(color=text_color)), 
+            gridcolor=grid_color,
+            tickfont=dict(family=font_family, color=text_color, size=12)
+        ),
+        yaxis=dict(
+            title=dict(text=y_axis_title, font=dict(color=text_color)), 
+            gridcolor=grid_color,
+            tickfont=dict(family=font_family, color=text_color, size=12)
+        ),
+        legend=dict(
+            orientation="h", 
+            yanchor="bottom", y=1.02, 
+            xanchor="right", x=1,
+            font=dict(family=font_family, size=13, color=text_color),
+            itemwidth=30  # Spacing
+        ),
         annotations=annotations,
-        hovermode="x unified"
+        hovermode="x unified",
+        height=500, # Task 1: Height >= 500px
+        margin=dict(l=40, r=40, t=80, b=40),
     )
     
     # Task 5: Responsive layout
-    fig.update_layout(autosize=True)
+    # fig.update_layout(autosize=True) # Streamlit handles this with use_container_width=True
     
     return fig
 
@@ -415,34 +467,29 @@ if page == "Retention Prediction":
 elif page == "LTV Prediction":
     st.header(t["ltv"]["header"])
     
-    # Currency Selector (Global for LTV)
-    currency_options = ["USD", "CNY", "EUR", "JPY"]
-    # Try to detect locale? Defaults to USD for now.
-    st.session_state.currency = st.selectbox(
-        t["currency_label"], 
-        currency_options, 
-        index=currency_options.index(st.session_state.get('currency', 'USD'))
-    )
+    # Layout: Left Input (25-30%) + Right Chart (70-75%)
+    # Streamlit columns [1, 3] approximates 25% / 75%
+    col_left, col_right = st.columns([1, 3])
     
-    # Layout: Main Input (Left) + Chart Panel (Right)
-    # User requested a 320px right panel. We approximate with columns.
-    show_panel = st.checkbox(t["ltv"]["panel_toggle"], value=True)
-    
-    if show_panel:
-        col_main, col_right = st.columns([3, 1])
-    else:
-        col_main = st.container()
-        col_right = None
-    
-    with col_main:
+    with col_left:
         st.subheader(t["ltv"]["input_header"])
-        edited_df = st.data_editor(st.session_state.ltv_data, num_rows="dynamic")
+        
+        # Currency Selector
+        currency_options = ["USD", "CNY", "EUR", "JPY"]
+        st.session_state.currency = st.selectbox(
+            t["currency_label"], 
+            currency_options, 
+            index=currency_options.index(st.session_state.get('currency', 'USD'))
+        )
+        
+        # Data Editor
+        edited_df = st.data_editor(st.session_state.ltv_data, num_rows="dynamic", use_container_width=True)
         st.session_state.ltv_data = edited_df
         
         model_type = st.selectbox(t["ltv"]["model_type"], ["power_law", "logarithmic", "retention_based"])
         prediction_days = st.number_input(t["ltv"]["predict_days"], value=365, min_value=30)
         
-        if st.button(t["ltv"]["run_btn"]):
+        if st.button(t["ltv"]["run_btn"], type="primary", use_container_width=True):
             try:
                 days = edited_df['Day'].values
                 vals = edited_df['LTV'].values
@@ -472,45 +519,45 @@ elif page == "LTV Prediction":
             except Exception as e:
                 st.error(f"Error: {str(e)}")
 
-    if show_panel and col_right:
-        with col_right:
-            if st.session_state.predicted_ltv:
-                data = st.session_state.predicted_ltv
-                
-                # Plot
-                fig = plot_with_interval(
-                    data['days'], data['pred'], data['lower'], data['upper'], 
-                    t["ltv"]["plot_title"], 
-                    t["ltv"]["y_axis"], 
-                    t["retention"],
-                    theme=st.session_state.theme,
-                    currency=st.session_state.currency
-                )
-                fig.add_trace(go.Scatter(
-                    x=data['input_days'], y=data['input_vals'], 
-                    mode='markers', 
-                    name=t["ltv"]["actual"], 
-                    marker=dict(color='red')
-                ))
-                
-                # Task 5: Mobile check - use_container_width handles responsiveness
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # Key Metrics
-                st.subheader(t["ltv"]["metrics_title"])
-                metrics = {
-                    "D90": np.interp(90, data['days'], data['pred']),
-                    "D180": np.interp(180, data['days'], data['pred']),
-                    "D365": np.interp(365, data['days'], data['pred'])
-                }
-                for k, v in metrics.items():
-                    st.metric(k, format_value(v, currency=st.session_state.currency))
-                
-                # Sensitivity
-                if model_type == 'retention_based': # This variable might be stale if re-running. 
-                    # Ideally should store model type in session state or check model class
-                    # For simplicity, we skip re-calculating sensitivity here to save space or move it to a modal
-                    st.info("Sensitivity Analysis available in full view")
+    with col_right:
+        if st.session_state.predicted_ltv:
+            data = st.session_state.predicted_ltv
+            
+            # Key Metrics (Top of Chart)
+            metrics = {
+                "D90": np.interp(90, data['days'], data['pred']),
+                "D180": np.interp(180, data['days'], data['pred']),
+                "D365": np.interp(365, data['days'], data['pred'])
+            }
+            
+            m_cols = st.columns(len(metrics))
+            for i, (k, v) in enumerate(metrics.items()):
+                m_cols[i].metric(k, format_value(v, currency=st.session_state.currency))
+
+            # Plot
+            fig = plot_with_interval(
+                data['days'], data['pred'], data['lower'], data['upper'], 
+                t["ltv"]["plot_title"], 
+                t["ltv"]["y_axis"], 
+                t["retention"],
+                theme=st.session_state.theme,
+                currency=st.session_state.currency
+            )
+            fig.add_trace(go.Scatter(
+                x=data['input_days'], y=data['input_vals'], 
+                mode='markers', 
+                name=t["ltv"]["actual"], 
+                marker=dict(color='#FF5252', size=8, line=dict(width=1.5, color='white'), opacity=0.9)
+            ))
+            
+            # Task 1 & 5: High resolution & Responsive
+            st.plotly_chart(fig, use_container_width=True, config={'responsive': True, 'displayModeBar': False})
+            
+            # Sensitivity
+            if model_type == 'retention_based': 
+                st.info("Sensitivity Analysis available (Coming Soon)")
+        else:
+            st.info("👈 Please enter data and run prediction / 请在左侧输入数据并运行预测")
 
 # --- ROAS Module ---
 elif page == "ROAS Payback":
