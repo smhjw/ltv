@@ -168,7 +168,7 @@ page = module_map[page_display]
 if 'retention_data' not in st.session_state:
     st.session_state.retention_data = pd.DataFrame({
         'Day': [1, 2, 3, 7, 14, 30],
-        'Retention': [0.50, 0.40, 0.35, 0.25, 0.20, 0.15]
+        'Retention': [50.0, 40.0, 35.0, 25.0, 20.0, 15.0]
     })
 if 'ltv_data' not in st.session_state:
     st.session_state.ltv_data = pd.DataFrame({
@@ -207,7 +207,8 @@ if page == "Retention Prediction":
         if st.button(t["retention"]["run_btn"]):
             try:
                 days = edited_df['Day'].values
-                rates = edited_df['Retention'].values
+                # Convert percentage to decimal for model
+                rates = edited_df['Retention'].values / 100.0
                 
                 # Validation
                 if len(days) < 3:
@@ -234,9 +235,10 @@ if page == "Retention Prediction":
                     }
                     
                     # Plot
-                    fig = plot_with_interval(future_days, pred, lower, upper, t["retention"]["plot_title"], t["retention"]["y_axis"], t["retention"])
+                    # Convert predictions back to percentage for display
+                    fig = plot_with_interval(future_days, pred * 100, lower * 100, upper * 100, t["retention"]["plot_title"], t["retention"]["y_axis"] + " (%)", t["retention"])
                     # Add actuals
-                    fig.add_trace(go.Scatter(x=days, y=rates, mode='markers', name=t["retention"]["actual"], marker=dict(color='red')))
+                    fig.add_trace(go.Scatter(x=days, y=rates * 100, mode='markers', name=t["retention"]["actual"], marker=dict(color='red')))
                     
                     st.session_state.retention_fig = fig
             except Exception as e:
